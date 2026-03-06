@@ -106,11 +106,13 @@ class NeuralLayer:
         # Pass gradient through activation function
         grad_z = self.activation.backward(grad_output)   # (batch, output_size)
 
-        # Gradient w.r.t. weights — averaged over batch
-        self.grad_W = self.x.T @ grad_z / batch_size     # (input_size, output_size)
+        # Gradient w.r.t. weights
+        # NOTE: do NOT divide by batch_size here — the loss function
+        # already returns a mean, so grad_z already accounts for batch averaging.
+        self.grad_W = self.x.T @ grad_z                   # (input_size, output_size)
 
-        # Gradient w.r.t. biases — mean over batch
-        self.grad_b = grad_z.mean(axis=0, keepdims=True)  # (1, output_size)
+        # Gradient w.r.t. biases — sum over batch (consistent with grad_W)
+        self.grad_b = grad_z.sum(axis=0, keepdims=True)   # (1, output_size)
 
         # Gradient w.r.t. input — passed to previous layer
         return grad_z @ self.W.T                          # (batch, input_size)

@@ -26,7 +26,7 @@ class NeuralNetwork:
 
     def __init__(
         self,
-        input_size: int,
+        input_size=784,
         hidden_sizes: list = None,
         output_size: int = 10,
         activation: str = "relu",
@@ -37,9 +37,8 @@ class NeuralNetwork:
     ):
         """
         Args:
-            input_size:   Number of input features (e.g. 784 for 28x28 images).
+            input_size:   Number of input features, or an argparse.Namespace object.
             hidden_sizes: List of neuron counts per hidden layer (e.g. [128, 128]).
-                          If None, uses hidden_size * num_layers or defaults to [128].
             output_size:  Number of output classes (e.g. 10 for Fashion-MNIST).
             activation:   Activation for hidden layers: 'sigmoid' | 'tanh' | 'relu'.
             weight_init:  Weight init strategy: 'xavier' | 'random'.
@@ -47,6 +46,21 @@ class NeuralNetwork:
             num_layers:   Alternative way to specify number of hidden layers.
             hidden_size:  Alternative way to specify neurons per layer (int).
         """
+        # Handle argparse.Namespace being passed as first argument
+        import argparse
+        if isinstance(input_size, argparse.Namespace):
+            args = input_size
+            input_size   = getattr(args, 'input_size', 784)
+            hidden_sizes = getattr(args, 'hidden_sizes',
+                          getattr(args, 'hidden_size', [128]))
+            output_size  = getattr(args, 'output_size', 10)
+            activation   = getattr(args, 'activation', 'relu')
+            weight_init  = getattr(args, 'weight_init', 'xavier')
+            loss         = getattr(args, 'loss', 'cross_entropy')
+            num_layers   = getattr(args, 'num_layers', None)
+            if isinstance(hidden_sizes, int):
+                hidden_sizes = [hidden_sizes] * (num_layers or 1)
+
         # Resolve hidden_sizes from multiple possible input formats
         if hidden_sizes is None:
             if hidden_size is not None and num_layers is not None:
