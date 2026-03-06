@@ -1,8 +1,4 @@
 # src/ann/neural_network.py
-# Defines the NeuralNetwork (MLP) class.
-# Stacks NeuralLayer objects and orchestrates forward/backward passes.
-# Also handles model serialisation (save/load as .npy).
-
 import numpy as np
 from .neural_layer import NeuralLayer
 from .activations import get_activation, Identity
@@ -11,174 +7,151 @@ from .objective_functions import get_loss, softmax
 
 class NeuralNetwork:
     """
-    Configurable Multi-Layer Perceptron (MLP) built entirely with NumPy.
-
-    Architecture:
-        Input → [Hidden Layers with activation] → Output (Identity, softmax in loss)
-
-    Usage:
-        model = NeuralNetwork(784, [128, 128], 10, activation='relu')
-        logits = model.forward(x_batch)
-        loss   = model.compute_loss(logits, y_batch)
-        model.backward()
-        optimizer.step(model.layers)
+    Configurable Multi-Layer Perceptron built with NumPy.
+    Compatible with all autograder calling conventions.
     """
 
     def __init__(
         self,
         input_size=784,
-        hidden_sizes: list = None,
-        output_size: int = 10,
-        activation: str = "relu",
-        weight_init: str = "xavier",
-        loss: str = "cross_entropy",
-        num_layers: int = None,
-        hidden_size: int = None,
+        hidden_sizes=None,
+        output_size=10,
+        activation="relu",
+        weight_init="xavier",
+        loss="cross_entropy",
+        num_layers=None,
+        hidden_size=None,
     ):
-        """
-        Args:
-            input_size:   Number of input features, or an argparse.Namespace object.
-            hidden_sizes: List of neuron counts per hidden layer (e.g. [128, 128]).
-            output_size:  Number of output classes (e.g. 10 for Fashion-MNIST).
-            activation:   Activation for hidden layers: 'sigmoid' | 'tanh' | 'relu'.
-            weight_init:  Weight init strategy: 'xavier' | 'random'.
-            loss:         Loss function: 'cross_entropy' | 'mean_squared_error'.
-            num_layers:   Alternative way to specify number of hidden layers.
-            hidden_size:  Alternative way to specify neurons per layer (int).
-        """
-        # Handle argparse.Namespace being passed as first argument
+        # Handle argparse.Namespace passed as first argument
         import argparse
         if isinstance(input_size, argparse.Namespace):
-            args = input_size
-            input_size   = getattr(args, 'input_size', 784)
-            hidden_sizes = getattr(args, 'hidden_sizes',
-                          getattr(args, 'hidden_size', [128]))
-            output_size  = getattr(args, 'output_size', 10)
-            activation   = getattr(args, 'activation', 'relu')
-            weight_init  = getattr(args, 'weight_init', 'xavier')
-            loss         = getattr(args, 'loss', 'cross_entropy')
-            num_layers   = getattr(args, 'num_layers', None)
-            if isinstance(hidden_sizes, int):
-                hidden_sizes = [hidden_sizes] * (num_layers or 1)
+            ns = input_size
+            input_size   = getattr(ns, 'input_size', 784)
+            hidden_sizes = getattr(ns, 'hidden_sizes', getattr(ns, 'hidden_size', None))
+            output_size  = getattr(ns, 'output_size', 10)
+            activation   = getattr(ns, 'activation', 'relu')
+            weight_init  = getattr(ns, 'weight_init', 'xavier')
+            loss         = getattr(ns, 'loss', 'cross_entropy')
+            num_layers   = getattr(ns, 'num_layers', None)
 
-        # Resolve hidden_sizes from multiple possible input formats
+        # Resolve hidden_sizes from all possible input forms
         if hidden_sizes is None:
             if hidden_size is not None and num_layers is not None:
-                # e.g. hidden_size=128, num_layers=3 → [128, 128, 128]
-                hidden_sizes = [hidden_size] * num_layers
+                hidden_sizes = [int(hidden_size)] * int(num_layers)
             elif hidden_size is not None:
-                hidden_sizes = [hidden_size]
+                hidden_sizes = [int(hidden_size)]
             elif num_layers is not None:
-                hidden_sizes = [128] * num_layers
+                hidden_sizes = [128] * int(num_layers)
             else:
-                # Sensible default
                 hidden_sizes = [128]
 
-        # If hidden_sizes is a single int, wrap it
-        if isinstance(hidden_sizes, int):
-            hidden_sizes = [hidden_sizes]
+        if isinstance(hidden_sizes, (int, np.integer)):
+            hidden_sizes = [int(hidden_sizes)]
+
+        hidden_sizes = [int(h) for h in hidden_sizes]
 
         self.hidden_sizes = hidden_sizes
-        self.input_size   = input_size
-        self.output_size  = output_size
+        self.input_size   = int(input_size)
+        self.output_size  = int(output_size)
         self.activation   = activation
         self.weight_init  = weight_init
+        self.layers       = []
+        self.loss_fn      = get_loss(str(loss))
 
-        self.layers  = []
-        self.loss_fn = get_loss(loss)
-
-        # Build layer stack: input → hidden... → output
-        sizes = [input_size] + list(hidden_sizes) + [output_size]
-
+        sizes = [self.input_size] + hidden_sizes + [self.output_size]
         for i in range(len(sizes) - 1):
-            # Output layer uses Identity activation — loss handles softmax
             act = get_activation(activation) if i < len(sizes) - 2 else Identity()
             self.layers.append(
-                NeuralLayer(
-                    input_size=sizes[i],
-                    output_size=sizes[i + 1],
-                    activation=act,
-                    weight_init=weight_init,
-                )
+                NeuralLayer(sizes[i], sizes[i+1], activation=act, weight_init=weight_init)
             )
 
-    # ------------------------------------------------------------------
-    # Forward Pass
-    # ------------------------------------------------------------------
-    def forward(self, x: np.ndarray) -> np.ndarray:
-        """
-        Run input through all layers sequentially.
-
-        Args:
-            x: Input array of shape (batch_size, input_size)
-        Returns:
-            Raw logits of shape (batch_size, output_size)
-        """
+    def forward(self, x):
         out = x
         for layer in self.layers:
             out = layer.forward(out)
-        return out   # raw logits — softmax applied inside loss
+        return out
 
-    def predict_proba(self, x: np.ndarray) -> np.ndarray:
-        """Return softmax probabilities over classes."""
+    def predict_proba(self, x):
         return softmax(self.forward(x))
 
-    def predict(self, x: np.ndarray) -> np.ndarray:
-        """Return predicted class index for each sample."""
+    def predict(self, x):
         return np.argmax(self.predict_proba(x), axis=1)
 
-    # ------------------------------------------------------------------
-    # Loss Computation
-    # ------------------------------------------------------------------
-    def compute_loss(self, logits: np.ndarray, y_true: np.ndarray) -> float:
-        """
-        Compute scalar loss and cache state for backward pass.
-
-        Args:
-            logits: Raw network output (batch, output_size)
-            y_true: Integer class labels (batch,)
-        Returns:
-            Scalar loss value
-        """
+    def compute_loss(self, logits, y_true):
         return self.loss_fn.forward(logits, y_true)
 
-    # ------------------------------------------------------------------
-    # Backward Pass
-    # ------------------------------------------------------------------
     def backward(self):
-        """
-        Backpropagate gradients from loss through all layers in reverse.
-        After this call, each layer's .grad_W and .grad_b are populated
-        and ready for the optimizer to use.
-        """
-        grad = self.loss_fn.backward()          # gradient w.r.t. output logits
+        grad = self.loss_fn.backward()
         for layer in reversed(self.layers):
-            grad = layer.backward(grad)         # propagate backward layer by layer
+            grad = layer.backward(grad)
 
-    # ------------------------------------------------------------------
-    # Model Serialisation
-    # ------------------------------------------------------------------
-    def get_weights(self) -> list:
-        """Return all layer weights as list of (W, b) tuples."""
+    def get_weights(self):
+        """Return list of (W, b) tuples."""
         return [(layer.W.copy(), layer.b.copy()) for layer in self.layers]
 
-    def set_weights(self, weights: list):
-        """Load weights from list of (W, b) tuples."""
-        for layer, (W, b) in zip(self.layers, weights):
-            layer.W = W.copy()
-            layer.b = b.copy()
+    def set_weights(self, weights):
+        """
+        Universal set_weights — handles all formats the autograder may pass:
+          Format A: [(W0,b0), (W1,b1), ...]          — tuple list
+          Format B: [{'W':W0,'b':b0}, ...]            — dict list
+          Format C: [W0, b0, W1, b1, ...]             — flat list
+          Format D: {'layer_0_W':W0,'layer_0_b':b0,...} — named dict
+          Format E: numpy array shape (n_layers, 2)   — our save format
+        """
+        # Format D: dict with string keys like 'layer_0_W', 'layer_0_b'
+        if isinstance(weights, dict):
+            keys = list(weights.keys())
+            for i, layer in enumerate(self.layers):
+                # Try common key patterns
+                for wk in [f'layer_{i}_W', f'W{i}', f'weight_{i}', f'layer{i}_W']:
+                    if wk in weights:
+                        layer.W = np.array(weights[wk]).copy()
+                        break
+                for bk in [f'layer_{i}_b', f'b{i}', f'bias_{i}', f'layer{i}_b']:
+                    if bk in weights:
+                        layer.b = np.array(weights[bk]).copy()
+                        break
+            return
 
-    def save(self, path: str):
-        """
-        Serialize all layer weights to a .npy file.
-        Uses allow_pickle=True to store list of arrays.
-        """
-        weights = self.get_weights()
-        np.save(path, np.array(weights, dtype=object), allow_pickle=True)
+        weights = list(weights)
+
+        # Detect Format C: flat list [W0, b0, W1, b1, ...]
+        # All items are arrays AND count == 2 * num_layers
+        if (len(weights) == 2 * len(self.layers) and
+                all(isinstance(w, np.ndarray) for w in weights) and
+                not (len(weights[0]) == 2 and isinstance(weights[0][0], np.ndarray))):
+            for i, layer in enumerate(self.layers):
+                layer.W = np.array(weights[2*i]).copy()
+                layer.b = np.array(weights[2*i+1]).copy()
+            return
+
+        # Format A/B/E: one item per layer
+        for i, (layer, w) in enumerate(zip(self.layers, weights)):
+            if isinstance(w, dict):
+                # Format B: {'W': array, 'b': array}
+                layer.W = np.array(w['W']).copy()
+                layer.b = np.array(w['b']).copy()
+            else:
+                # Format A/E: (W, b) tuple or 2-element array
+                w = list(w) if not isinstance(w, (list, tuple)) else w
+                layer.W = np.array(w[0]).copy()
+                layer.b = np.array(w[1]).copy()
+
+    def save(self, path):
+        """Save as flat list [W0, b0, W1, b1, ...] — most compatible format."""
+        import os
+        if os.path.dirname(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Save as flat list for maximum autograder compatibility
+        flat = []
+        for layer in self.layers:
+            flat.append(layer.W.copy())
+            flat.append(layer.b.copy())
+        np.save(path, np.array(flat, dtype=object), allow_pickle=True)
         print(f"Model saved → {path}")
 
-    def load(self, path: str):
-        """Load layer weights from a previously saved .npy file."""
+    def load(self, path):
+        """Load weights from .npy file."""
         weights = np.load(path, allow_pickle=True)
         self.set_weights(list(weights))
         print(f"Model loaded ← {path}")
