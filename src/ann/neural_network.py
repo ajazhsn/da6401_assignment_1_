@@ -61,6 +61,12 @@ class NeuralNetwork:
         return self.loss_fn.forward(logits, y_true)
 
     def backward(self, y_true=None, y_pred=None, weight_decay=0.0, *args, **kwargs):
+        """
+        Supports:
+          model.backward()              -> uses cached loss grad
+          model.backward(y_true, y_pred) -> autograder style
+        Always returns (grad_W_list, grad_b_list) for autograder unpacking.
+        """
         if y_pred is not None and y_true is not None:
             probs = softmax(y_pred)
             batch_size = probs.shape[0]
@@ -83,6 +89,9 @@ class NeuralNetwork:
                 grad = np.zeros((batch, self.output_size))
             for layer in reversed(self.layers):
                 grad = layer.backward(grad)
+        grad_W = [l.grad_W for l in self.layers]
+        grad_b = [l.grad_b for l in self.layers]
+        return grad_W, grad_b
 
     def get_weights(self):
         d = {}
@@ -92,11 +101,15 @@ class NeuralNetwork:
         return d
 
     def set_weights(self, weights):
+        # Handle 0-d numpy array (what np.load returns for dict-saved .npy)
+        if isinstance(weights, np.ndarray) and weights.ndim == 0:
+            weights = weights.item()
         if isinstance(weights, dict):
             for i, layer in enumerate(self.layers):
                 if f"W{i}" in weights: layer.W = np.array(weights[f"W{i}"]).copy()
                 if f"b{i}" in weights: layer.b = np.array(weights[f"b{i}"]).copy()
             return
+        # Flat list / tuple format
         weights = list(weights)
         while len(weights) > 0 and np.array(weights[0]).ndim == 0:
             weights = weights[1:]
@@ -118,6 +131,6 @@ class NeuralNetwork:
         print(f"Model saved -> {path}")
 
     def load(self, path):
-        data = np.load(path, allow_pickle=True).item()
-        self.set_weights(data)
+        data = np.load(path, allow_pickle=True)
+        self.set_weights(data)  # set_weights handles 0-d array
         print(f"Model loaded <- {path}")
