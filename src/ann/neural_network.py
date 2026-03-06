@@ -66,7 +66,6 @@ class NeuralNetwork:
             )
 
     def forward(self, x):
-        self._last_batch_size = x.shape[0]
         out = x
         for layer in self.layers:
             out = layer.forward(out)
@@ -81,17 +80,8 @@ class NeuralNetwork:
     def compute_loss(self, logits, y_true):
         return self.loss_fn.forward(logits, y_true)
 
-    def backward(self, loss_grad=None, *args, **kwargs):
-        """Backpropagate. If loss_grad provided, use it directly."""
-        if loss_grad is not None and isinstance(loss_grad, np.ndarray):
-            grad = loss_grad
-        else:
-            try:
-                grad = self.loss_fn.backward()
-            except AttributeError:
-                # Called without prior compute_loss — use last known batch size
-                batch = getattr(self, '_last_batch_size', 1)
-                grad = np.zeros((batch, self.output_size))
+    def backward(self, *args, **kwargs):
+        grad = self.loss_fn.backward()
         for layer in reversed(self.layers):
             grad = layer.backward(grad)
 
@@ -148,14 +138,11 @@ class NeuralNetwork:
                 layer.b = np.array(w[1]).copy()
 
     def save(self, path):
-        """Save as [input_size, hidden_size, num_layers, output_size, W0, b0, ...]"""
+        """Save as [input_size, hidden_sizes, output_size, W0, b0, W1, b1, ...]"""
         import os
         if os.path.dirname(path):
             os.makedirs(os.path.dirname(path), exist_ok=True)
-        # Scalar metadata so autograder can do int(data[0]), int(data[1]), etc.
-        hidden_size = self.hidden_sizes[0] if self.hidden_sizes else 128
-        num_layers  = len(self.hidden_sizes)
-        data = [self.input_size, hidden_size, num_layers, self.output_size]
+        data = [self.input_size, self.hidden_sizes, self.output_size]
         for layer in self.layers:
             data.append(layer.W.copy())
             data.append(layer.b.copy())
@@ -163,10 +150,10 @@ class NeuralNetwork:
         print(f"Model saved → {path}")
 
     def load(self, path):
-        """Load weights. Handles [scalar, scalar, scalar, scalar, W0, b0, ...] format."""
+        """Load weights from .npy file. Handles both flat and metadata formats."""
         data = list(np.load(path, allow_pickle=True))
-        # Skip scalar metadata entries at the start
-        while len(data) > 0 and np.array(data[0]).ndim == 0:
-            data = data[1:]
+        # If first element is scalar (input_size), skip metadata [in_sz, hidden, out_sz]
+        if len(data) > 0 and np.array(data[0]).ndim == 0:
+            data = data[3:]  # skip input_size, hidden_sizes, output_size
         self.set_weights(data)
         print(f"Model loaded ← {path}")
